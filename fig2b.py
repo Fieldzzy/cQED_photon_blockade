@@ -3,7 +3,9 @@ import qutip as qt
 import matplotlib.pyplot as plt
 import scipy.integrate as integrate
 from functions import *
-from scipy.fftpack import fftshift
+from scipy.fft import fft
+from scipy.fftpack import fftshift, fftfreq
+
 
 omg0 = 1
 omgx = omg0
@@ -23,9 +25,9 @@ sigmax = qt.tensor(qt.qeye(dim), qt.sigmax())
 sigmaz = qt.tensor(qt.qeye(dim), qt.sigmaz())
 
 
-def main(omg):
+def main():
     # |0> - |1> : 0.844, - |2> : 1.153, -|3> : 1.787
-    omgd = 1.2 * omg0
+    omgd = 1.153 * omg0
     H0 = omg0 * ad * a + omgx * sigmap * sigmam + g * (a + ad) * (np.cos(theta) * sigmaz - np.sin(theta) * sigmax)
     Hdrive = qt.QobjEvo([[Omg * a, lambda t: np.cos(omgd * t)], [Omg * ad, lambda t: np.cos(omgd * t)]])
     Hs = H0 + Hdrive
@@ -94,29 +96,53 @@ def main(omg):
                 X_dot_m = X_dot_p.dag()
 
     # g20 = (rho_ss * X_dot_m * X_dot_m * X_dot_p * X_dot_p).tr() / ((rho_ss * X_dot_m * X_dot_p).tr()) ** 2
-    tau_list = np.linspace(0, 100, 10000)
     L_floquet = steadyoper_floquet(L00, [La, Ls], Omg * (a + ad), w_d=omgd)
-    corr_list = qt.correlation_2op_1t(Hs, rho_ss, tau_list, [La, Ls], X_dot_m, X_dot_p, reverse=True)
-    ker_list = corr_list * np.exp(1j * omg * tau_list)
-    w_list, spec = qt.spectrum_correlation_fft(tau_list, corr_list)
-    figg, axx = plt.subplots(3, 1)
-    axx[0].plot(w_list, np.real(spec))
-    axx[1].semilogy(w_list, np.abs(spec))
-    axx[2].plot(w_list, np.angle(spec))
-    plt.show(block=True)
-    return np.real(2 * integrate.simpson(ker_list, x=tau_list))
+    corr_list = qt.correlation_2op_1t(L0, rho_ss, tau_list, [La, Ls], X_dot_m, X_dot_p, reverse=False)
+    prop = propagator(Hs, tau_list, [La, Ls])
+    corr_list2 = np.zeros(points, complex)
+    for i in range(0, points):
+        corr_list2[i] = (rho_ss * X_dot_m * qt.vector_to_operator(prop[i].dag() * qt.operator_to_vector(X_dot_p))).tr()
+    # plt.plot(tau_list, np.real(corr_list))
+    # plt.show()
+
+    # w_list, spec = qt.spectrum_correlation_fft(tau_list, corr_list)
+    # figg, axx = plt.subplots(2, 1)
+    # axx[0].plot(w_list, np.real(spec))
+    # # axx[0].plot(w_list, (np.max(np.real(spec))/np.pi)*np.angle(spec))
+    # axx[1].semilogy(w_list, np.abs(spec))
+    # # axx[1].plot(w_list, (np.max(np.abs(spec))/np.pi)*np.angle(spec))
+    # plt.show(block=True)
+    return corr_list, corr_list2
 
 
-points = 1
-omg_list = np.linspace(0.3 * omg0, 1.7 * omg0, points)
+def test():
+    return np.sin(tau_list)
+
+
+global tau_list
+points = 10000
+tau_range = 499.7
+tau_list = np.linspace(0, tau_range, points)
+
+corr_list, corr_list2 = main()
+omg_list = fftshift(fftfreq(points, d=tau_range/points)) * 2 * np.pi
+omg_list2 = np.linspace(omg0 * 0.2, omg0 * 1.7, points)
 results = list(np.zeros(points))
 for i in range(0, points):
-    results[i] = main(omg_list[i])
+    ker_list = corr_list2 * np.exp(1j * omg_list2[i] * tau_list)
+    results[i] = 2 * integrate.simpson(ker_list, x=tau_list)
     print(i)
 
 results = np.array(results)
-fig, ax = plt.subplots()
-ax.semilogy(omg_list, abs(results))
+
+w_list, spec1 = qt.spectrum_correlation_fft(tau_list, corr_list2, inverse=False)
+spec2 = fftshift(fft(corr_list2))
+fig, ax = plt.subplots(5, 1)
+ax[0].plot(tau_list, np.abs(corr_list2))
+ax[1].semilogy(omg_list2, np.abs(np.real(results)))
+ax[2].plot(omg_list2, np.abs(results))
+ax[3].semilogy(w_list, np.abs(spec1), marker='+')
+ax[4].semilogy(omg_list, np.abs(np.real(spec2)))
 plt.show(block=True)
 
 # See PyCharm help at https://www.jetbrains.com/help/pycharm/
